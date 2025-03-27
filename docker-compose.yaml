@@ -1,0 +1,15 @@
+services:
+  telegram-bot:
+    build: .
+    container_name: telegram-bot
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./users.db:/app/users.db
+    network_mode: "host"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
