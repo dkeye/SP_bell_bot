@@ -51,15 +51,30 @@ async def is_allowed(update: Update) -> bool:
     chat_id = update.effective_chat.id
     topic_id = update.message.message_thread_id if update.message else None
 
-    if chat_id != ALLOWED_CHAT_ID or topic_id != ALLOWED_TOPIC_ID:
-        logger.warning(
-            "Недопустимая команда: user_id=%s, chat_id=%s, topic_id=%s",
-            update.effective_user.id,
-            chat_id,
-            topic_id
-        )
-        return False
-    return True
+    # Если это личка — проверяем, состоит ли человек в группе
+    if update.effective_chat.type == "private":
+        try:
+            member = await update.get_bot().get_chat_member(ALLOWED_CHAT_ID, update.effective_user.id)
+            if member.status not in ("member", "creator", "administrator"):
+                logger.warning("Пользователь не состоит в группе: user_id=%s", update.effective_user.id)
+                return False
+            return True
+        except Exception as e:
+            logger.warning("Ошибка проверки участника: %s", e)
+            return False
+
+    # Если это группа с обсуждениями — проверяем топик
+    if chat_id == ALLOWED_CHAT_ID and topic_id == ALLOWED_TOPIC_ID:
+        return True
+
+    logger.warning(
+        "Недопустимая команда: user_id=%s, chat_id=%s, topic_id=%s",
+        update.effective_user.id,
+        chat_id,
+        topic_id
+    )
+    return False
+
 
 
 # /reg команда
@@ -132,7 +147,7 @@ async def who(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     message = "👥 В сети:\n" + "\n".join(f"[{username}](https://t.me/{username})" for username in registered_usernames)
     logger.info("Список пользователей в сети: user_id=%s, users=%s", update.effective_user.id, registered_usernames)
-    await update.message.reply_text(message, parse_mode="MarkdownV2")
+    await update.message.reply_text(message, parse_mode="MarkdownV2", disable_web_page_preview=True)
 
 
 
@@ -142,29 +157,30 @@ async def bell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(NOT_ALLOWED)
         return
 
-    # Получение подключенных MAC-адресов и пользователей
     connected_macs = get_connected_macs()
     users = get_all_users()
+    usernames = {users[mac][1] for mac in connected_macs if mac in users}
 
-    # Извлечение уникальных user_id зарегистрированных пользователей
-    user_ids = {users[mac][0] for mac in connected_macs if mac in users}
-
-    # Если ни один пользователь не в сети
-    if not user_ids:
+    if not usernames:
         logger.info("Оповещение не отправлено: Никого нет в сети (user_id=%s)", update.effective_user.id)
         await update.message.reply_text(NO_CONNECTED_USERS)
         return
 
-    # Собираем уникальные usernames для уведомления
-    usernames = {users[mac][1] for mac in connected_macs if mac in users}
+    # 📣 Отправляем сообщение в чат
+    message = NOTIFICATION_MESSAGE + "\n" + "\n".join(f"@{username}" for username in usernames)
 
-    # Формируем уведомление для текущего чата
-    notification_message = NOTIFICATION_MESSAGE + "\n" + "\n".join(f"@{username}" for username in usernames)
+    try:
+        await context.bot.send_message(
+            chat_id=ALLOWED_CHAT_ID,
+            message_thread_id=ALLOWED_TOPIC_ID,
+            text=message,
+            disable_web_page_preview=True
+        )
+        logger.info("Оповещение отправлено в чат: %s", message)
+    except Exception as e:
+        logger.error("Ошибка при отправке оповещения в группу: %s", e)
+        await update.message.reply_text("⚠️ Ошибка при отправке оповещения.")
 
-    logger.info("Оповещение отправлено в группе (user_id=%s, usernames=%s)", update.effective_user.id, usernames)
-
-    # Отправляем уведомление в текущий чат
-    await update.message.reply_text(notification_message)
 
 
 # /info команда
