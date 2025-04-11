@@ -2,8 +2,9 @@ import asyncio
 import logging
 import os
 
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, BotCommand, BotCommandScopeDefault, BotCommandScopeAllGroupChats, InlineKeyboardButton, \
+    InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 
 from database import init_db, add_user, remove_user, get_user_by_mac, get_user_by_id, get_all_users
 from utils import get_connected_macs
@@ -130,6 +131,46 @@ async def delete_mac(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ MAC {mac_address} удалён.")
 
 
+async def choose_mac_to_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    users = get_all_users()
+    user_macs = [mac for mac, (uid, _) in users.items() if uid == user_id]
+
+    if not user_macs:
+        await update.message.reply_text("У вас нет зарегистрированных MAC-адресов.")
+        return
+
+    buttons = [[InlineKeyboardButton(mac, callback_data=f"delmac:{mac}")]
+               for mac in user_macs]
+    buttons.append([InlineKeyboardButton("Удалить все", callback_data="delmac:ALL")])
+
+    await update.message.reply_text(
+        "Выберите MAC-адрес для удаления:",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+async def handle_mac_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    mac_arg = query.data.split(":")[1]
+
+    users = get_all_users()
+    if mac_arg == "ALL":
+        removed = 0
+        for mac, (uid, _) in list(users.items()):
+            if uid == user_id:
+                remove_user(mac)
+                removed += 1
+        await query.edit_message_text(f"✅ Удалено {removed} MAC-адресов.")
+    else:
+        owner = users.get(mac_arg)
+        if owner and owner[0] == user_id:
+            remove_user(mac_arg)
+            await query.edit_message_text(f"✅ MAC {mac_arg} удалён.")
+        else:
+            await query.edit_message_text("❌ Вы не можете удалить этот MAC.")
+
 # /who команда
 async def who(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed(update):
@@ -203,7 +244,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
         "🛠 Доступные команды:\n\n"
         "/reg <MAC-адрес> - Зарегистрировать новый MAC-адрес.\n"
-        "/delmac <MAC-адрес> - Удалить зарегистрированный MAC-адрес.\n"
+        "/delmac - Удалить зарегистрированный MAC-адрес.\n"
         "/who - Показывает список пользователей, которые находятся в сети.\n"
         "/bell - Отправить уведомление зарегистрированным пользователям.\n"
         "/info - Получить информацию о текущем чате (ID).\n"
@@ -211,12 +252,37 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
+async def set_bot_commands(application):
+    await application.bot.set_my_commands(
+        [
+            BotCommand("reg", "Зарегистрировать MAC-адрес"),
+            BotCommand("delmac", "Удалить MAC-адрес"),
+            BotCommand("who", "Кто в сети"),
+            BotCommand("bell", "Позвать всех"),
+            BotCommand("info", "Chat ID / Topic ID"),
+            BotCommand("help", "Справка")
+        ],
+        scope=BotCommandScopeDefault()
+    )
+
+    await application.bot.set_my_commands(
+        [
+            BotCommand("who", "Кто в сети"),
+            BotCommand("bell", "Позвать всех"),
+            BotCommand("help", "Справка")
+        ],
+        scope=BotCommandScopeAllGroupChats()
+    )
 
 # Настройка бота
 def setup_bot():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
-    application.add_handler(CommandHandler("reg", register))
-    application.add_handler(CommandHandler("delmac", delete_mac))
+
+    application.post_init = set_bot_commands
+
+    application.add_handler(CommandHandler("reg", register, has_args=1))
+    application.add_handler(CommandHandler("delmac", choose_mac_to_delete))
+    application.add_handler(CallbackQueryHandler(handle_mac_delete_callback, pattern="^delmac:"))
     application.add_handler(CommandHandler("who", who))
     application.add_handler(CommandHandler("bell", bell))
     application.add_handler(CommandHandler("info", info))
@@ -230,15 +296,7 @@ def run_bot():
     logger.info("Инициализация БД завершена.")
 
     application = setup_bot()
-
-    loop = asyncio.get_event_loop()
-    try:
-        loop.run_until_complete(application.run_polling())
-    except KeyboardInterrupt:
-        logger.info("Бот остановлен вручную")
-    finally:
-        logger.info("Закрытие приложения")
-        loop.run_until_complete(application.shutdown())
+    application.run_polling()
 
 
 if __name__ == "__main__":
