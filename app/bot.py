@@ -140,7 +140,7 @@ async def who(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def bell(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = get_all_users()
     connected = get_connected_macs()
-    names = [users[mac][1] for mac in connected if mac in users]
+    names = {users[mac][1] for mac in connected if mac in users}
 
     if not names:
         await update.message.reply_text(NO_CONNECTED_USERS)
