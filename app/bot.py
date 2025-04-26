@@ -181,8 +181,28 @@ async def my_macs(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = get_all_users()
     connected = get_connected_macs()
-    count = sum(1 for mac in connected if mac in users)
-    await update.message.reply_text(f"👥 Зарегистрировано: {len(users)}\n🟢 Сейчас в сети: {count}")
+    user_status = {}
+    for mac, (user_id, username) in users.items():
+        if user_id not in user_status:
+            user_status[user_id] = (username, False)
+        if mac in connected:
+            user_status[user_id] = (username, True)
+
+    lines = [
+        f"{'🟢' if online else '⚪️'} @{username}"
+        for username, online in user_status.values()
+    ]
+
+    lines.sort(reverse=True)  # Сначала 🟢, потом ⚪️
+
+    online_count = sum(online for _, online in user_status.values())
+    text = (
+            f"👥 Зарегистрировано: {len(user_status)}\n"
+            f"🟢 Сейчас в сети: {online_count}\n\n" +
+            "\n".join(lines)
+    )
+
+    await update.message.reply_text(text)
 
 
 @allowed_only
