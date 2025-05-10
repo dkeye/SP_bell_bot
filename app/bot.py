@@ -8,6 +8,7 @@ from telegram import (
 from telegram.ext import (
     Application, CommandHandler, ContextTypes, CallbackQueryHandler
 )
+from telegram.helpers import escape_markdown
 
 from database import init_db, add_user, remove_user, get_all_users
 from network_utils import get_connected_macs
@@ -132,7 +133,8 @@ async def who(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(NO_CONNECTED_USERS)
         return
 
-    msg = "👥 В сети:\n" + "\n".join(f"[{name}](https://t.me/{name})" for name in names)
+    msg = "👥 В сети:\n" + "\n".join(
+        f"[{escape_markdown(name, version=2)}](https://t.me/{escape_markdown(name, version=2)})" for name in names)
     await update.message.reply_text(msg, parse_mode="MarkdownV2", disable_web_page_preview=True)
 
 
