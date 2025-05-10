@@ -33,7 +33,7 @@ USAGE_REGISTER = "❌ Использование: /reg <MAC-адрес>"
 USAGE_DELETE_MAC = "❌ Использование: /delmac <MAC-адрес>"
 NO_CONNECTED_USERS = "❌ В сети нет зарегистрированных пользователей."
 NOTIFICATION_SENT = "🔔 Оповещение отправлено!"
-NOTIFICATION_MESSAGE = "🔔 Кто-то просит открыть дверь!"
+NOTIFICATION_MESSAGE = "🔔 {} просит открыть дверь!"
 
 
 def get_user_data(update: Update):
@@ -146,7 +146,8 @@ async def bell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(NO_CONNECTED_USERS)
         return
 
-    msg = NOTIFICATION_MESSAGE + "\n" + "\n".join(f"@{name}" for name in names)
+    _, username = get_user_data(update)
+    msg = NOTIFICATION_MESSAGE.format(username) + "\n" + "\n".join(f"@{name}" for name in names)
     try:
         await context.bot.send_message(
             chat_id=ALLOWED_CHAT_ID,
